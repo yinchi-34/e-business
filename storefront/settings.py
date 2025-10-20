@@ -27,6 +27,7 @@ DEBUG = True
 
 ALLOWED_HOSTS = []
 
+AUTH_USER_MODEL = 'core.User'
 
 # Application definition
 
@@ -37,11 +38,13 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django_filters',
     'rest_framework',
     'storefront',
     'store',
     'tags',
     'likes',
+    'core',
 ]
 
 MIDDLEWARE = [
@@ -50,6 +53,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    # 认证
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -60,9 +64,23 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': (
         'rest_framework.renderers.JSONRenderer',
         'rest_framework.renderers.BrowsableAPIRenderer'
-    )
+    ),
+    'DEFAULT_PAGINATION_CLASS':
+        'store.pagination.DefaultPagination',
+        'PAGE_SIZE': 10,
+
 }
 
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": "redis://default:TDTGrqsQkhxQXVvPIBBJWBwnvavpdZsB@centerbeam.proxy.rlwy.net:40055",
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        },
+        "KEY_PREFIX": "storefront"
+    }
+}
 
 TEMPLATES = [
     {
@@ -136,3 +154,9 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+CELERY_BROKER_URL = 'redis://default:TDTGrqsQkhxQXVvPIBBJWBwnvavpdZsB@centerbeam.proxy.rlwy.net:40055/0'
+CELERY_RESULT_BACKEND = 'redis://default:TDTGrqsQkhxQXVvPIBBJWBwnvavpdZsB@centerbeam.proxy.rlwy.net:40055/0'
+CELERY_TIMEZONE = 'Asia/Shanghai'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
