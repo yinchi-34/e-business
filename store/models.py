@@ -1,4 +1,5 @@
 from django.db import models
+from uuid import uuid4
 
 
 class Promotion(models.Model):
@@ -68,6 +69,9 @@ class OrderItem(models.Model):
     quantity = models.PositiveIntegerField()
     unit_price = models.DecimalField(max_digits=6, decimal_places=2)
 
+    class Meta:
+        unique_together = (('order', 'product'),)
+
 
 class Address(models.Model):
     street = models.CharField(max_length=255)
@@ -78,10 +82,32 @@ class Address(models.Model):
 
 
 class Cart(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     created_time = models.DateTimeField(auto_now_add=True)
 
 
 class CartItem(models.Model):
-    cart = models.ForeignKey(Cart, on_delete=models.CASCADE)
+    cart = models.ForeignKey(Cart, on_delete=models.CASCADE,related_name='items')
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     quantity = models.PositiveIntegerField()
+
+    class Meta:
+        ordering = ['quantity']
+        unique_together = (('product', 'cart'),)
+
+
+class Advertisement(models.Model):
+    title = models.CharField(max_length=255)
+    image = models.URLField()
+    price = models.DecimalField(max_digits=6, decimal_places=2)
+    link = models.URLField()
+    position = models.CharField(max_length=50, default='homepage')
+    priority = models.PositiveIntegerField()
+    is_active = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-priority', '-updated_at']
+
+    def __str__(self):
+        return f'{self.position} - {self.title}'

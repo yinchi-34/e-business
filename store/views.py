@@ -1,13 +1,23 @@
-import status as status
-from django.db.models import Count
+from django.db.models import Count, F
+from django.db.models.aggregates import Sum
 from django.shortcuts import get_object_or_404
 from django.core.exceptions import ObjectDoesNotExist
-from django.http import HttpResponse
-from rest_framework import status
-from rest_framework.response import Response
+from .utils import get_ads_by_position
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.decorators import api_view
-from .models import Product, OrderItem, Order, Customer, Collection
-from .serializers import ProductSerializer, CollectionSerializer
+from rest_framework.permissions import IsAdminUser
+
+from rest_framework.filters import SearchFilter, OrderingFilter
+from rest_framework.mixins import CreateModelMixin, RetrieveModelMixin, DestroyModelMixin
+from rest_framework import status, viewsets
+from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView
+from rest_framework.response import Response
+from rest_framework.viewsets import ModelViewSet, GenericViewSet
+from .filter import ProductFilter
+from .models import Product, OrderItem, Order, Customer, Collection, Cart, CartItem, Advertisement
+from .serializers import ProductSerializer, CollectionSerializer, CartSerializer, CartItemSerializer, \
+    AdvertisementSerializer
+from .task import refresh_ads_cache
 
 
 def get_order_product(request):
@@ -26,36 +36,24 @@ def get_order_product(request):
 def get_order(request):
     try:
         queryset = Order.objects.select_related(
-            'customer').prefetch_related('orderitem_set').order_by('-placed_at')[:5]
+            'customer').prefetch_related('orderitem_set').order_by('-placed_at')
     except ObjectDoesNotExist:
         return Response({'message': '暂未上架'}, status=404)
 
 
-@api_view(['GET', 'POST'])
-def product(request):
-    if request.method == 'GET':
-        queryset = Product.objects.select_related('collection').all()[:10]
-        serializer = ProductSerializer(
-            queryset, many=True, context={'request': request})
-        return Response(serializer.data)
-    elif request.method == 'POST':
-        serializer = ProductSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+class ProductViewSet(ModelViewSet):
+    queryset = Product.objects.all()
+    serializer_class = ProductSerializer
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_class = ProductFilter
+    search_fields = ['title', 'description']
+    ordering_fields = ['price', 'last_update']
 
+    def get_serializer_context(self):
+        return {'request': self.request}
 
-@api_view(['GET', 'PUT', 'DELETE'])
-def product_detail(request, id):
-    product = get_object_or_404(Product, pk=id)
-    if request.method == 'GET':
-        serializer = ProductSerializer(product)
-        return Response(serializer.data)
-    elif request.method == 'PUT':
-        serializer = ProductSerializer(instance=product, data=request.data)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-    elif request.method == 'DELETE':
+    def destroy(self, request, pk):
+        product = get_object_or_404(Product, pk=pk)
         if product.orderitem_set.count() > 0:
             return Response(
                 {
@@ -67,34 +65,19 @@ def product_detail(request, id):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-@api_view(['GET', 'POST'])
-def collection(request):
-    if request.method == 'GET':
-        queryset = Collection.objects.annotate(
+class CollectionList(ListCreateAPIView):
+    queryset = Collection.objects.annotate(
             products_count=Count('product')).all()[:10]
-        serializer = CollectionSerializer(queryset, many=True)
-        return Response(serializer.data)
-    if request.method == 'POST':
-        serializer = CollectionSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+    serializer_class = CollectionSerializer
 
 
-@api_view(['GET', 'PUT', 'DELETE'])
-def collection_detail(request, pk):
-    collection = get_object_or_404(
-        Collection.objects.annotate(
-            product_count=Count('product')
-        ), pk=pk)
-    if request.method == 'GET':
-        serializer = CollectionSerializer(collection)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-    elif request.method == 'PUT':
-        serializer = CollectionSerializer(instance=collection, data=request.data)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_200_OK)
-    elif request.method == 'DELETE':
+class CollectionDetail(RetrieveUpdateDestroyAPIView):
+    queryset = Collection.objects.annotate(product_count=Count('product'))
+    serializer_class = CollectionSerializer
+
+    def delete(self, request, pk):
+        #queryset返回的是queryset多个对象，没有调用get_object，不是单个对象
+        collection = self.get_object()
         product_count = collection.product_set.count()
         if product_count > 0 and not request.GET.get('confirm'):
             return Response(
@@ -108,3 +91,36 @@ def collection_detail(request, pk):
             collection.delete()
             return Response(status=status.HTTP_204_NO_CONTENT)
 
+
+class CartViewSet(CreateModelMixin,
+                  RetrieveModelMixin,
+                  DestroyModelMixin,
+                  GenericViewSet):
+    serializer_class = CartSerializer
+
+    def get_queryset(self):
+        # 该查询触发了三个表，购物车，购物车清单，产品清单，所以prefetch应该加入product，否则会出现cartitem__productN+1查询
+        return Cart.objects.prefetch_related('items__product').annotate(
+            total_price=Sum(F('items__product__price') * F('items__quantity')), )
+
+
+class CartItemViewSet(viewsets.ModelViewSet):
+    serializer_class = CartItemSerializer
+
+    def get_queryset(self):
+        return CartItem.objects.filter(cart_id=self.kwargs['cart_pk']).select_related('product')
+
+
+@api_view(['GET'])
+def get_ads(request):
+    position = request.GET.get('position', 'homepage')
+    ads = get_ads_by_position(position)
+
+    # 异步刷新缓存（非阻塞）
+    refresh_ads_cache.delay(position)
+
+    return Response({'position': position, 'ads': ads})
+
+class AdverisementViewSet(ModelViewSet):
+    serializer_class = AdvertisementSerializer
+    queryset = Advertisement.objects.filter(position='position')
