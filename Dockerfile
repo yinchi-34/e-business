@@ -10,7 +10,9 @@ RUN apt-get update && apt-get install -y\
      python3 \
      python3-pip \
      python3-venv\
-     default-libmysqlclient-dev
+     pkg-config \
+     default-libmysqlclient-dev\
+     build-essential
 
 #Create Virtual enviorment
 Run python3 -m venv /app/venv
