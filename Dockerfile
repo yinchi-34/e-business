@@ -1,12 +1,15 @@
 # dockerfile:1
-FROM ubuntu as Base
+FROM ubuntu AS base
 
 LABEL authors="zoey"
 LABEL version="1.0"
 LABEL decsription="E-business Django Application"
 
 #Install system dependencies
-RUN apt-get update && apt-get install -y python3 python3-pip
+RUN apt-get update && apt-get install -y python3 python3-pip python3-venv
+
+#Create Virtual enviorment
+Run python3 -m venv /app/venv
 
 #Create applicaion user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
@@ -18,10 +21,13 @@ WORKDIR /app
 COPY pyproject.toml .
 
 #Install Python dependencies from pyproject.toml
-RUN pip3 install .
+RUN /app/venv/bin/pip install .
 
 #Copy app
 COPY . .
+
+#Set virtual environment path
+ENV PATH="/app/venv/bin:$PATH"
 
 #Change file ownership to appuser
 RUN chown -R appuser:appuser /app
