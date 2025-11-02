@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django_filters',
+    'djoser',
     'rest_framework',
     'storefront',
     'store',
@@ -61,6 +62,9 @@ MIDDLEWARE = [
 ROOT_URLCONF = 'storefront.urls'
 
 REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
     'DEFAULT_RENDERER_CLASSES': (
         'rest_framework.renderers.JSONRenderer',
         'rest_framework.renderers.BrowsableAPIRenderer'
@@ -69,6 +73,15 @@ REST_FRAMEWORK = {
         'store.pagination.DefaultPagination',
         'PAGE_SIZE': 10,
 
+}
+
+SIMPLE_JWT = {
+   'AUTH_HEADER_TYPES': ('JWT',),
+}
+
+DJOSER = {
+    'TOKEN_MODEL': None,
+    # other settings
 }
 
 CACHES = {
